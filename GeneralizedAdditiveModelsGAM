@@ -1,0 +1,271 @@
+# Generalized Additive Models GAM
+#setwd("C:/Users/Aaron-/Desktop/016 Winter Courses/STA2201/Homework 3/Q1.1")
+library(mgcv)
+cUrl = "http://scrippsco2.ucsd.edu/sites/default/
+          files/data/flask_co2_and_isotopic/daily_co2/fldav_spo.csv"
+cFile = basename(cUrl)
+if (!file.exists(cFile)) download.file(cUrl, cFile)
+co2s = read.table(cFile, header = FALSE, sep = ",", skip = 69, 
+                  stringsAsFactors = FALSE)
+co2s[co2s[, 6] > 0, 7] = NA
+co2s = data.frame(date = strptime(co2s[, 1], format = "%Y-%m-%d",
+tz = "UTC"), co2 = co2s[, 7])
+# set 1957-05-17as the reference date
+timeOrigin = ISOdate(1957,5,17,0,0,0, tz='UTC')
+# create a column for days since 1957-05-17
+co2s$timeNumeric = as.numeric(difftime(co2s$date, timeOrigin, 
+                                       units='days'))
+# create a column for the month of each observation
+co2s$month = months(co2s$date)
+# create a coulmn for the number of days in each month
+co2s$daysInMonth = Hmisc::monthDays(co2s$date)
+# the log number of days will be an offset, rates modelled will be 
+# number of deaths per day
+co2s$LogDays = log(co2s$daysInMonth)
+co2s$monthF <- factor(co2s$month, levels=month.name)
+
+co2gam = gam(co2 ~ monthF + s(timeNumeric), data=co2s, 
+             family=Gamma(link="log"))
+#### forcasting with gam
+# create data frame increment of month starting in Jan, 01, 2000
+newX = data.frame(date = seq(from = timeOrigin, by = "months", 
+                             length.out = (1991-1957)*12))
+# new column represents the days since Jan, 01, 2000
+newX$timeNumeric = as.numeric(difftime(newX$date, timeOrigin, 
+                                       units = "days"))
+# calculate how many days in the each row/month
+newX$daysInMonth = Hmisc::monthDays(newX$date)
+newX$nDays = log(newX$daysInMonth)
+# get the month of each row
+newX$month = months(newX$date)
+############################  Part 1  ###########################
+# create a new dataframe starting Jan, 01, 2012 for 60 months
+diffStart = ISOdate(2012,1,1,0,0,0, tz='UTC')
+diffX = data.frame(date = seq(from = diffStart, 
+                              by = "months", length.out = 60))
+diffX$timeNumeric = as.numeric(difftime(diffX$date, 
+                                     timeOrigin, units = "days"))
+# calculate how many days in the each row/month
+diffX$daysInMonth = Hmisc::monthDays(diffX$date)
+# get the month of each row
+diffX$month = months(diffX$date)
+diffX$monthF <- factor(diffX$month, levels=month.name)
+diffX$LogDays = log(diffX$daysInMonth)
+# prediction
+co2diff0 <- predict(co2gam, diffX, type="lpmatrix")
+
+# create a new dataframe starting Jan, 02, 2012 for 60 months
+diffStart1 = ISOdate(2012,1,2,0,0,0, tz='UTC')
+#predStart = max(co2s$date)
+diffX1 = data.frame(date = seq(from = diffStart1, 
+                               by = "months", length.out = 60))
+diffX1$timeNumeric = as.numeric(difftime(diffX1$date, 
+                                      timeOrigin, units = "days"))
+# calculate how many days in the each row/month
+diffX1$daysInMonth = Hmisc::monthDays(diffX1$date)
+# get the month of each row
+diffX1$month = months(diffX1$date)
+diffX1$monthF <- factor(diffX1$month, levels=month.name)
+diffX1$LogDays = log(diffX1$daysInMonth)
+# prediction
+co2diff1 <- predict(co2gam, diffX1, type="lpmatrix")
+
+# plot the recent trend of CO2 level 
+co2diff <- predict(co2gam, diffX, se.fit = TRUE)
+co2diff = cbind(diffX, co2diff)
+co2diff$lower = co2diff$fit - 2 * co2diff$se.fit
+co2diff$upper = co2diff$fit + 2 * co2diff$se.fit
+for (D in c("fit", "lower", "upper")) {
+  co2diff[[paste(D, "exp", sep = "")]] = exp(co2diff[[D]])}
+# finite difference
+Xdiff <- co2diff1 - co2diff0
+sDer <- Xdiff%*%coef(co2gam) 
+sDer.sd <- rowSums(Xdiff%*%co2gam$Vp*Xdiff)^0.5
+# plot the derivative of smooth of recent years
+plot(diffX$date, sDer, type = "l", xlab = "date", 
+     ylab = "Change in CO2 Level",  
+     ylim = range(c(sDer - 2*sDer.sd, sDer + 2*sDer.sd)))
+lines(diffX$date, sDer + 2*sDer.sd, lty = 2, lwd = 2, col = "red")
+lines(diffX$date, sDer - 2*sDer.sd, lty = 2, lwd = 2, col = "green")
+############################  Part 2  ###########################
+#######################  First Recession  #######################
+# create a new dataframe starting June, 01, 1977 for 36 months
+recStart1 = ISOdate(1975,6,1,0,0,0, tz='UTC')
+recX1 = data.frame(date = seq(from = recStart1, 
+                              by = "months", length.out = 12*10))
+recX1$timeNumeric = as.numeric(difftime(recX1$date, 
+                                    timeOrigin, units = "days"))
+# calculate how many days in the each row/month
+recX1$daysInMonth = Hmisc::monthDays(recX1$date)
+# get the month of each row
+recX1$month = months(recX1$date)
+recX1$monthF <- factor(recX1$month, levels=month.name)
+recX1$LogDays = log(recX1$daysInMonth)
+
+# predict carbon dioxide values in recession period 1980 - 1982
+recPred1 = predict(co2gam, recX1, se.fit = TRUE)
+recPred1 = cbind(recX1, recPred1)
+recPred1$lower = recPred1$fit - 2 * recPred1$se.fit
+recPred1$upper = recPred1$fit + 2 * recPred1$se.fit
+for (D in c("fit", "lower", "upper")) {
+  recPred1[[paste(D, "exp", sep = "")]] = exp(recPred1[[D]])}
+# plot the predicted values
+plot(recPred1$date, recPred1[, "fitexp"], type = "n", 
+     xlab = "date", ylab = "CO2 Levels", xaxs = "i", 
+     ylim = range(recPred1$lowerexp, recPred1$upperexp))
+matlines(recPred1$date, recPred1[, c("lowerexp", "upperexp", 
+                                     "fitexp")], 
+         lty = 1, col = c("red", "green", "black"), 
+         lwd = c(2, 2, 1))
+# plot the derivative of over the same period
+recStart1 = ISOdate(1975,6,1,0,0,0, tz='UTC')
+recDiff1 = data.frame(date = seq(from = recStart1, 
+                              by = "months", length.out = 12*10))
+recDiff1$timeNumeric = as.numeric(difftime(recDiff1$date, 
+                                        timeOrigin, units = "days"))
+# calculate how many days in the each row/month
+recDiff1$daysInMonth = Hmisc::monthDays(recDiff1$date)
+# get the month of each row
+recDiff1$month = months(recDiff1$date)
+recDiff1$monthF <- factor(recDiff1$month, levels=month.name)
+recDiff1$LogDays = log(recDiff1$daysInMonth)
+# prediction
+rec1 <- predict(co2gam, recDiff1, type="lpmatrix")
+# create a new dataframe starting Jan, 02, 2012 for 48 months
+recStart11 = ISOdate(1975,6,2,0,0,0, tz='UTC')
+#predStart = max(co2s$date)
+recDiff11 = data.frame(date = seq(from = recStart11, 
+                              by = "months", length.out = 12*10))
+recDiff11$timeNumeric = as.numeric(difftime(recDiff11$date, 
+                                    timeOrigin, units = "days"))
+# calculate how many days in the each row/month
+recDiff11$daysInMonth = Hmisc::monthDays(recDiff11$date)
+# get the month of each row
+recDiff11$month = months(recDiff11$date)
+recDiff11$monthF <- factor(recDiff11$month, levels=month.name)
+recDiff11$LogDays = log(recDiff11$daysInMonth)
+# prediction
+rec11 <- predict(co2gam, recDiff11, type="lpmatrix")
+# finite difference
+recder1 <- rec11 - rec1
+recDf1 <- recder1%*%coef(co2gam) 
+recDf1.sd <- rowSums(recder1 %*%co2gam$Vp*recder1 )^0.5
+# plot the derivative of smooth of recent years
+plot(recX1$date, recDf1, type = "l", xlab = "date", 
+     ylab = "Change in CO2 Level",
+     ylim = range(c(recDf1 - 2*recDf1.sd, recDf1 + 2*recDf1.sd)))
+lines(recX1$date, recDf1 + 2*recDf1.sd, lty = 2, lwd = 2, 
+      col = "red")
+lines(recX1$date, recDf1 - 2*recDf1.sd, lty = 2, lwd = 2, 
+      col = "green")
+#######################  Second Recession  #######################
+# create a new dataframe starting June, 01, 1985 for 120 months
+recStart2 = ISOdate(1985,6,1,0,0,0, tz='UTC')
+recX2 = data.frame(date = seq(from = recStart2, 
+                              by = "months", length.out = 120))
+recX2$timeNumeric = as.numeric(difftime(recX2$date, 
+                                      timeOrigin, units = "days"))
+# calculate how many days in the each row/month
+recX2$daysInMonth = Hmisc::monthDays(recX2$date)
+# get the month of each row
+recX2$month = months(recX2$date)
+recX2$monthF <- factor(recX2$month, levels=month.name)
+recX2$LogDays = log(recX2$daysInMonth)
+# predict carbon dioxide values in recession period 1980 - 1982
+recPred2 = predict(co2gam, recX2, se.fit = TRUE)
+recPred2 = cbind(recX2, recPred2)
+recPred2$lower = recPred2$fit - 2 * recPred2$se.fit
+recPred2$upper = recPred2$fit + 2 * recPred2$se.fit
+for (D in c("fit", "lower", "upper")) {
+  recPred2[[paste(D, "exp", sep = "")]] = exp(recPred2[[D]])}
+# plot the predicted values
+plot(recPred2$date, recPred2[, "fitexp"], type = "n", 
+     xlab = "date", ylab = "CO2 Levels", xaxs = "i", 
+     ylim = range(recPred2$lowerexp, recPred2$upperexp))
+matlines(recPred2$date, recPred2[, c("lowerexp", "upperexp", 
+                                     "fitexp")], 
+         lty = 1, col = c("red", "green", "black"), 
+         lwd = c(2, 2, 1))
+# plot the derivative of over the same period
+recStart2 = ISOdate(1985,6,1,0,0,0, tz='UTC')
+recDiff2 = data.frame(date = seq(from = recStart2, 
+                            by = "months", length.out = 120))
+recDiff2$timeNumeric = as.numeric(difftime(recDiff2$date, 
+                                      timeOrigin, units = "days"))
+# calculate how many days in the each row/month
+recDiff2$daysInMonth = Hmisc::monthDays(recDiff2$date)
+# get the month of each row
+recDiff2$month = months(recDiff2$date)
+recDiff2$monthF <- factor(recDiff2$month, levels=month.name)
+recDiff2$LogDays = log(recDiff2$daysInMonth)
+# prediction
+rec2 <- predict(co2gam, recDiff2, type="lpmatrix")
+# create a new dataframe starting June, 02, 1985 for 120 months
+recStart22 = ISOdate(1985,6,2,0,0,0, tz='UTC')
+#predStart = max(co2s$date)
+recDiff22 = data.frame(date = seq(from = recStart22, 
+                                  by = "months", length.out = 120))
+recDiff22$timeNumeric = as.numeric(difftime(recDiff22$date, 
+                                      timeOrigin, units = "days"))
+# calculate how many days in the each row/month
+recDiff22$daysInMonth = Hmisc::monthDays(recDiff22$date)
+# get the month of each row
+recDiff22$month = months(recDiff22$date)
+recDiff22$monthF <- factor(recDiff22$month, levels=month.name)
+recDiff22$LogDays = log(recDiff22$daysInMonth)
+# prediction
+rec22 <- predict(co2gam, recDiff22, type="lpmatrix")
+# finite difference
+recder2 <- rec22 - rec2
+recDf2 <- recder2%*%coef(co2gam) 
+recDf2.sd <- rowSums(recder2 %*%co2gam$Vp*recder2)^0.5
+# plot the derivative of smooth of recent years
+plot(recX2$date, recDf2, type = "l", xlab = "date", 
+     ylab = "Change in CO2 Level",
+     ylim = range(c(recDf2 - 2*recDf2.sd, recDf2 + 2*recDf2.sd)))
+lines(recX2$date, recDf2 + 2*recDf2.sd, lty = 2, lwd = 2, 
+      col = "red")
+lines(recX2$date, recDf2 - 2*recDf2.sd, lty = 2, lwd = 2, 
+      col = "green")
+############################  Part 3  ###########################
+fixSumm <- summary(co2gam)$p.table
+compSumm <- rbind(
+  c(exp(fixSumm[3,1]), fixSumm[3,2], 
+    exp(fixSumm[3,1] - 1.96*fixSumm[3,2]), 
+    exp(fixSumm[3,1] + 1.96*fixSumm[3,2])), 
+  c(exp(fixSumm[10,1]), fixSumm[3,2], 
+    exp(fixSumm[10,1] - 1.96*fixSumm[10,2]), 
+    exp(fixSumm[10,1] + 1.96*fixSumm[10,2])))
+colnames(compSumm) <- c("exp($\\beta)$", "Std. Error", "exp(2.5%)", 
+                        "exp(97.5%)")
+rownames(compSumm) <- c("March", "October")
+############################  Part 4  ###########################
+# create a new dataframe starting June, 01, 2019
+predStart = ISOdate(2019,6,1,0,0,0, tz='UTC')
+#predStart = max(co2s$date)
+predX = data.frame(date = seq(from = predStart, by = "months", 
+                              length.out = 24))
+predX$timeNumeric = as.numeric(difftime(predX$date, timeOrigin, 
+                                        units = "days"))
+# calculate how many days in the each row/month
+predX$daysInMonth = Hmisc::monthDays(predX$date)
+# get the month of each row
+predX$month = months(predX$date)
+predX$monthF <- factor(predX$month, levels=month.name)
+predX$LogDays = log(predX$daysInMonth)
+# predict carbon value in year 2020 using predX
+co2Pred = predict(co2gam, predX, se.fit = TRUE)
+co2Pred = cbind(predX, co2Pred)
+co2Pred$lower = co2Pred$fit - 2 * co2Pred$se.fit
+co2Pred$upper = co2Pred$fit + 2 * co2Pred$se.fit
+for (D in c("fit", "lower", "upper")) {
+  co2Pred[[paste(D, "exp", sep = "")]] = exp(co2Pred[[D]])
+}
+# plot the predicted values
+plot(co2Pred$date, co2Pred[, "fitexp"], type = "n", 
+     xlab = "date", ylab = "CO2 Levels", xaxs = "i", 
+     ylim = range(co2Pred$lowerexp, co2Pred$upperexp))
+matlines(co2Pred$date, co2Pred[, c("lowerexp", "upperexp", 
+                                   "fitexp")], 
+         lty = 1, col = c("red", "green", "black"), 
+         lwd = c(2, 2, 1))
